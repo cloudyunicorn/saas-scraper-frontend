@@ -3,6 +3,8 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Check, X, ArrowRight, Star, ShieldCheck, Sparkles, Zap, Clock, Bookmark } from 'lucide-react';
 import { getMatrixRow, getAllMatrixRows, normalizeFeatureMatrix, parseBigQueryTimestamp } from '@/lib/bigquery';
+import type { FeatureMatrix } from '@/types';
+
 
 // Configure ISR: 24-hour cache lifetime
 export const revalidate = 86400;
@@ -78,8 +80,35 @@ export default async function ComparisonPage({ params }: PageProps) {
     notFound();
   }
 
-  // Safely normalize features from the database feature_matrix
+  // Safely normalize features from the database feature_matrix as a compatibility fallback
   const features = normalizeFeatureMatrix(row.feature_matrix, row.primary_tool, row.competitor_tool);
+
+  // Safely parse the feature_matrix JSON contract
+  let matrix: FeatureMatrix;
+  try {
+    matrix = typeof row.feature_matrix === 'string'
+      ? JSON.parse(row.feature_matrix)
+      : row.feature_matrix;
+      
+    // If matrix parsed but does not have the expected properties (e.g. it is the old array format),
+    // extract them dynamically from features for backwards compatibility
+    if (!matrix || typeof matrix !== 'object' || !('gantt_charts' in matrix)) {
+      matrix = {
+        gantt_charts: features.some(f => f.name.toLowerCase().includes('gantt') && isTruthy(f.primaryVal)),
+        kanban_boards: features.some(f => f.name.toLowerCase().includes('kanban') && isTruthy(f.primaryVal)),
+        pricing_tier: (features.find(f => f.name.toLowerCase().includes('price') || f.name.toLowerCase().includes('pricing'))?.primaryVal as string) || 'Pricing structure: custom plan tiers.',
+        ideal_team_size: (features.find(f => f.name.toLowerCase().includes('team') || f.name.toLowerCase().includes('size') || f.name.toLowerCase().includes('scale'))?.primaryVal as string) || 'Optimized for modern agile teams.'
+      };
+    }
+  } catch (e) {
+    console.error('Failed to parse feature_matrix JSON:', e);
+    matrix = {
+      gantt_charts: false,
+      kanban_boards: false,
+      pricing_tier: 'Pricing details currently unavailable.',
+      ideal_team_size: 'Ideal team scale information currently unavailable.'
+    };
+  }
 
   // Handle last updated timestamp parsing
   const lastUpdated = parseBigQueryTimestamp(row.last_updated);
@@ -89,9 +118,9 @@ export default async function ComparisonPage({ params }: PageProps) {
     day: 'numeric',
   });
 
-  // Calculate summary metrics
-  const primaryScores = features.filter(f => isTruthy(f.primaryVal)).length;
-  const competitorScores = features.filter(f => isTruthy(f.competitorVal)).length;
+  // Calculate summary metrics based on parsed matrix
+  const primaryScores = (matrix.gantt_charts ? 1 : 0) + (matrix.kanban_boards ? 1 : 0);
+  const competitorScores = (matrix.gantt_charts ? 1 : 0) + (matrix.kanban_boards ? 1 : 0);
   const isPrimaryWinner = primaryScores >= competitorScores;
   const winnerName = isPrimaryWinner ? row.primary_tool : row.competitor_tool;
 
@@ -236,55 +265,84 @@ export default async function ComparisonPage({ params }: PageProps) {
                       </th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-                    {features.length > 0 ? (
-                      features.map((feat, idx) => (
-                        <tr 
-                          key={idx} 
-                          className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors"
-                        >
-                          <td className="py-4 px-6 text-sm font-medium text-slate-800 dark:text-slate-200 align-middle">
-                            {feat.name}
-                          </td>
-                          <td className="py-4 px-6 text-center align-middle">
-                            {isTruthy(feat.primaryVal) ? (
-                              <div className="inline-flex items-center justify-center h-8 w-8 rounded-full bg-emerald-100 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400">
-                                <Check className="h-5 w-5 stroke-[2.5]" />
-                              </div>
-                            ) : isFalsy(feat.primaryVal) ? (
-                              <div className="inline-flex items-center justify-center h-8 w-8 rounded-full bg-rose-100 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400">
-                                <X className="h-5 w-5 stroke-[2.5]" />
-                              </div>
-                            ) : (
-                              <span className="text-sm font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-700/50 px-2.5 py-1 rounded">
-                                {String(feat.primaryVal)}
-                              </span>
-                            )}
-                          </td>
-                          <td className="py-4 px-6 text-center align-middle">
-                            {isTruthy(feat.competitorVal) ? (
-                              <div className="inline-flex items-center justify-center h-8 w-8 rounded-full bg-emerald-100 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400">
-                                <Check className="h-5 w-5 stroke-[2.5]" />
-                              </div>
-                            ) : isFalsy(feat.competitorVal) ? (
-                              <div className="inline-flex items-center justify-center h-8 w-8 rounded-full bg-rose-100 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400">
-                                <X className="h-5 w-5 stroke-[2.5]" />
-                              </div>
-                            ) : (
-                              <span className="text-sm font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-700/50 px-2.5 py-1 rounded">
-                                {String(feat.competitorVal)}
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan={3} className="py-8 text-center text-sm text-slate-500 dark:text-slate-400">
-                          Detailed feature comparison matrix currently loading.
-                        </td>
-                      </tr>
-                    )}
+                  <tbody className="divide-y divide-slate-200 dark:divide-slate-700 text-sm">
+                    {/* ROW 1: GANTT CHARTS */}
+                    <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+                      <td className="py-4 px-6 font-medium text-slate-800 dark:text-slate-200 align-middle">
+                        Gantt Charts / Timelines
+                      </td>
+                      <td className="py-4 px-6 text-center align-middle">
+                        {matrix.gantt_charts ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300">
+                            ✅ Available
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-100 dark:bg-rose-950/30 text-rose-700 dark:text-rose-400">
+                            ❌ No Native Support
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-4 px-6 text-center align-middle">
+                        {matrix.gantt_charts ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300">
+                            ✅ Available
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-100 dark:bg-rose-950/30 text-rose-700 dark:text-rose-400">
+                            ❌ No Native Support
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+
+                    {/* ROW 2: KANBAN BOARDS */}
+                    <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+                      <td className="py-4 px-6 font-medium text-slate-800 dark:text-slate-200 align-middle">
+                        Kanban Board Layouts
+                      </td>
+                      <td className="py-4 px-6 text-center align-middle">
+                        {matrix.kanban_boards ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300">
+                            ✅ Yes
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-100 dark:bg-rose-950/30 text-rose-700 dark:text-rose-400">
+                            ❌ No
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-4 px-6 text-center align-middle">
+                        {matrix.kanban_boards ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300">
+                            ✅ Yes
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-100 dark:bg-rose-950/30 text-rose-700 dark:text-rose-400">
+                            ❌ No
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+
+                    {/* ROW 3: PRICING */}
+                    <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+                      <td className="py-4 px-6 font-medium text-slate-800 dark:text-slate-200 align-middle">
+                        Pricing Structures
+                      </td>
+                      <td colSpan={2} className="py-4 px-6 text-slate-750 dark:text-slate-300 leading-relaxed align-middle">
+                        <p>{matrix.pricing_tier}</p>
+                      </td>
+                    </tr>
+
+                    {/* ROW 4: TARGET TEAM SCALE */}
+                    <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+                      <td className="py-4 px-6 font-medium text-slate-800 dark:text-slate-200 align-middle">
+                        Ideal User Scale
+                      </td>
+                      <td colSpan={2} className="py-4 px-6 text-slate-755 dark:text-slate-300 leading-relaxed align-middle">
+                        <p>{matrix.ideal_team_size}</p>
+                      </td>
+                    </tr>
                   </tbody>
                 </table>
               </div>
