@@ -84,13 +84,12 @@ export const bigquery = new BigQuery(options);
 
 /**
  * Executes a parameterized query to fetch a single matrix row.
- * Prevents SQL Injection. Fallbacks to mock data if credentials are missing or connection fails.
+ * Prevents SQL Injection and orders by last_updated DESC to fetch the latest version.
  */
 export async function getMatrixRow(slug: string): Promise<SaasMatrixRow | null> {
-  const query = 'SELECT * FROM `corporyt.seo_data.saas_matrix` WHERE slug = @slug LIMIT 1';
+  const query = 'SELECT * FROM `corporyt.seo_data.saas_matrix` WHERE slug = @slug ORDER BY last_updated DESC LIMIT 1';
   
   try {
-    // If credentials are completely missing, gracefully fallback to mock data in non-production
     if (!credentialsJson && process.env.NODE_ENV !== 'production') {
       const match = MOCK_ROWS.find(r => r.slug === slug);
       if (match) {
@@ -116,25 +115,46 @@ export async function getMatrixRow(slug: string): Promise<SaasMatrixRow | null> 
 }
 
 /**
- * Pulls only slug, category, and last_updated.
- * Fallbacks to mock data if credentials are missing or connection fails.
+ * Safely deduplicates an array of rows by their slug, keeping the latest row.
+ */
+export function deduplicateRows<T extends { slug: string; last_updated?: any }>(rows: T[]): T[] {
+  const seen = new Map<string, T>();
+  for (const row of rows) {
+    const existing = seen.get(row.slug);
+    if (!existing) {
+      seen.set(row.slug, row);
+    } else {
+      const existingDate = parseBigQueryTimestamp(existing.last_updated).getTime();
+      const rowDate = parseBigQueryTimestamp(row.last_updated).getTime();
+      if (rowDate > existingDate) {
+        seen.set(row.slug, row);
+      }
+    }
+  }
+  return Array.from(seen.values());
+}
+
+/**
+ * Pulls only slug, category, and last_updated, ordered by last_updated DESC.
+ * Deduplicates in-memory by slug to ensure uniqueness across sitemaps and dynamic router params.
  */
 export async function getAllMatrixRows(): Promise<SimplifiedMatrixRow[]> {
-  const query = 'SELECT slug, category, last_updated FROM `corporyt.seo_data.saas_matrix`';
+  const query = 'SELECT slug, category, last_updated FROM `corporyt.seo_data.saas_matrix` ORDER BY last_updated DESC';
   
   try {
     if (!credentialsJson && process.env.NODE_ENV !== 'production') {
       console.warn('BigQuery credentials missing. Using mock fallback list.');
-      return MOCK_ROWS.map(r => ({ slug: r.slug, category: r.category, last_updated: r.last_updated }));
+      return deduplicateRows(MOCK_ROWS.map(r => ({ slug: r.slug, category: r.category, last_updated: r.last_updated })));
     }
 
     const [rows] = await bigquery.query({ query });
-    return rows as SimplifiedMatrixRow[];
+    return deduplicateRows(rows as SimplifiedMatrixRow[]);
   } catch (error) {
     console.error('BigQuery query for all rows failed. Falling back to mock data:', error);
-    return MOCK_ROWS.map(r => ({ slug: r.slug, category: r.category, last_updated: r.last_updated }));
+    return deduplicateRows(MOCK_ROWS.map(r => ({ slug: r.slug, category: r.category, last_updated: r.last_updated })));
   }
 }
+
 
 /**
  * Safely parses any format of the BigQuery timestamp.
