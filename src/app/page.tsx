@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { Sparkles, ArrowRight, ShieldCheck, Zap, Star } from 'lucide-react';
-import { getAllMatrixRows, parseBigQueryTimestamp } from '@/lib/bigquery';
+import { getAllMatrixRows, parseBigQueryTimestamp, sanitizeSlug } from '@/lib/bigquery';
 
 // Force dynamic or low revalidation for index hub
 export const revalidate = 10; // 10 seconds for rapid landing page updates
@@ -124,7 +124,7 @@ export default async function Home() {
                       return (
                         <li key={item.slug}>
                           <Link 
-                            href={`/${item.category}/${item.slug}`}
+                            href={`/${item.category}/${sanitizeSlug(item.slug)}`}
                             className="group flex items-center justify-between p-2 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-950/30 text-sm font-medium text-slate-700 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
                           >
                             <span className="truncate">{displayName || item.slug}</span>

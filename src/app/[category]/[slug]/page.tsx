@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Check, X, ArrowRight, Star, ShieldCheck, Sparkles, Zap, Clock, Bookmark } from 'lucide-react';
-import { getMatrixRow, getAllMatrixRows, normalizeFeatureMatrix, parseBigQueryTimestamp } from '@/lib/bigquery';
+import { getMatrixRow, getAllMatrixRows, normalizeFeatureMatrix, parseBigQueryTimestamp, sanitizeSlug } from '@/lib/bigquery';
 import type { FeatureMatrix } from '@/types';
 
 
@@ -46,7 +46,7 @@ export async function generateStaticParams() {
   const rows = await getAllMatrixRows();
   return rows.map((row) => ({
     category: row.category,
-    slug: row.slug,
+    slug: sanitizeSlug(row.slug),
   }));
 }
 

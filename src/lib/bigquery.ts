@@ -80,18 +80,31 @@ if (credentialsJson) {
   }
 }
 
+export function sanitizeSlug(slug: string): string {
+  if (!slug) return '';
+  return slug
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-');
+}
+
 export const bigquery = new BigQuery(options);
 
 /**
  * Executes a parameterized query to fetch a single matrix row.
- * Prevents SQL Injection and orders by last_updated DESC to fetch the latest version.
+ * Prevents SQL Injection. Matches exact slug or its regex-sanitized URL-safe variant.
  */
 export async function getMatrixRow(slug: string): Promise<SaasMatrixRow | null> {
-  const query = 'SELECT * FROM `corporyt.seo_data.saas_matrix` WHERE slug = @slug ORDER BY last_updated DESC LIMIT 1';
+  const query = `
+    SELECT * FROM \`corporyt.seo_data.saas_matrix\` 
+    WHERE slug = @slug 
+       OR REGEXP_REPLACE(LOWER(TRIM(slug)), r'[^a-z0-9]+', '-') = @slug
+    ORDER BY last_updated DESC LIMIT 1
+  `;
   
   try {
     if (!credentialsJson && process.env.NODE_ENV !== 'production') {
-      const match = MOCK_ROWS.find(r => r.slug === slug);
+      const match = MOCK_ROWS.find(r => sanitizeSlug(r.slug) === sanitizeSlug(slug));
       if (match) {
         console.warn(`BigQuery credentials missing. Using mock fallback for slug "${slug}"`);
         return match;
@@ -110,29 +123,31 @@ export async function getMatrixRow(slug: string): Promise<SaasMatrixRow | null> 
     return null;
   } catch (error) {
     console.error(`BigQuery query failed for slug "${slug}". Falling back to mock data:`, error);
-    return MOCK_ROWS.find(r => r.slug === slug) || null;
+    return MOCK_ROWS.find(r => sanitizeSlug(r.slug) === sanitizeSlug(slug)) || null;
   }
 }
 
 /**
- * Safely deduplicates an array of rows by their slug, keeping the latest row.
+ * Safely deduplicates an array of rows by their sanitized slug, keeping the latest row.
  */
 export function deduplicateRows<T extends { slug: string; last_updated?: any }>(rows: T[]): T[] {
   const seen = new Map<string, T>();
   for (const row of rows) {
-    const existing = seen.get(row.slug);
+    const key = sanitizeSlug(row.slug);
+    const existing = seen.get(key);
     if (!existing) {
-      seen.set(row.slug, row);
+      seen.set(key, row);
     } else {
       const existingDate = parseBigQueryTimestamp(existing.last_updated).getTime();
       const rowDate = parseBigQueryTimestamp(row.last_updated).getTime();
       if (rowDate > existingDate) {
-        seen.set(row.slug, row);
+        seen.set(key, row);
       }
     }
   }
   return Array.from(seen.values());
 }
+
 
 /**
  * Pulls only slug, category, and last_updated, ordered by last_updated DESC.

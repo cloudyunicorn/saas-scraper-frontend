@@ -1,5 +1,5 @@
 import type { MetadataRoute } from 'next';
-import { getAllMatrixRows, parseBigQueryTimestamp } from '@/lib/bigquery';
+import { getAllMatrixRows, parseBigQueryTimestamp, sanitizeSlug } from '@/lib/bigquery';
 
 export const revalidate = 10;
 
@@ -14,7 +14,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     const lastModifiedDate = parseBigQueryTimestamp(row.last_updated);
     
     return {
-      url: `${baseUrl}/${row.category}/${row.slug}`,
+      url: `${baseUrl}/${row.category}/${sanitizeSlug(row.slug)}`,
       lastModified: lastModifiedDate,
       changeFrequency: 'weekly' as const,
       priority: 0.8,
