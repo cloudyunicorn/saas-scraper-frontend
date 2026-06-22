@@ -1,6 +1,8 @@
 import type { MetadataRoute } from 'next';
 import { getAllMatrixRows, parseBigQueryTimestamp } from '@/lib/bigquery';
 
+export const revalidate = 10;
+
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // Fetch all rows (slugs, categories, and timestamps) from BigQuery
   const rows = await getAllMatrixRows();

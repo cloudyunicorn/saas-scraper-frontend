@@ -3,7 +3,8 @@ import { Sparkles, ArrowRight, ShieldCheck, Zap, Star } from 'lucide-react';
 import { getAllMatrixRows, parseBigQueryTimestamp } from '@/lib/bigquery';
 
 // Force dynamic or low revalidation for index hub
-export const revalidate = 3600; // 1 hour for the landing page index
+export const revalidate = 10; // 10 seconds for rapid landing page updates
+
 
 interface GroupedComparisons {
   [category: string]: {

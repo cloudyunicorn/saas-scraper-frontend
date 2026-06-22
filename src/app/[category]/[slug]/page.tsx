@@ -6,8 +6,9 @@ import { getMatrixRow, getAllMatrixRows, normalizeFeatureMatrix, parseBigQueryTi
 import type { FeatureMatrix } from '@/types';
 
 
-// Configure ISR: 24-hour cache lifetime
-export const revalidate = 86400;
+// Configure ISR: 10 seconds cache lifetime
+export const revalidate = 10;
+
 
 interface PageProps {
   params: Promise<{
